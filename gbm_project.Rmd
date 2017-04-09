@@ -1,0 +1,307 @@
+---
+title: "Letter Recognition using Gradient Boosting Machines"
+author: "Yuan Wang"
+date: "December, 2016"
+output: pdf_document
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amsthm}
+  - \usepackage{amsfonts}
+  - \usepackage{graphicx}
+  - \usepackage{url}
+  - \usepackage[dvipsnames]{xcolor}
+  - \usepackage{hyperref}  \hypersetup{citecolor = MidnightBlue}
+  - \usepackage{cite}
+  - \usepackage{bbm}
+  - \usepackage{mathrsfs}
+  - \usepackage{setspace}
+  - \usepackage{graphics}
+---
+
+# 1 Data Overview
+In this part, we apply gradient boosting to the *Letter Image Recognition Data Set* to solve a multiclass classification problem. This data set is available from UCI Machine Learning Repository. The original data contains information of 26 capital letters (A-Z) with different fonts. Each observation is one image of black-and-white rectangular pixels, which displays as one of the 26 capital letters. Here we only use a subset of letter B, C, D, G, O and Q, and the goal is to distinguish the six letters.
+
+The data set includes one letter category (B,C,D,G,O,Q) and 16 numeric features, with a sample size of 4616 (B 766, C 736, D 805, G 773, O 753, Q 783). All the predictor variables (statistical moments and edge counts) have been scaled to fit into a range of integer values from 0 to 15.
+
+Variable | Description 
+-|-
+Class | capital letter(B, C, D, G, O, Q) 
+x-box	| horizontal position of box
+y-box	| vertical position of box
+width	| width of box
+high 	| height of box
+onpix	| total # on pixels
+x-bar	| mean x of on pixels in box
+y-bar	| mean y of on pixels in box
+x2bar	| mean x variance
+y2bar	| mean y variance
+xybar	| mean x y correlation
+x2ybr	| mean of x * x * y
+xy2br	| mean of x * y * y
+x-ege	| mean edge count left to right
+xegvy	| correlation of x-ege with y
+y-ege	| mean edge count bottom to top
+yegvx	| correlation of y-ege with x
+
+Table: Variable Information
+
+# 2 Building the Model
+We divided the data into a training set(80%) and test set(20%) randomly, using $J=4$ node trees with a learning rate $\nu = 0.01$, sub-sampling rate 50% and iteration time $M=10000$.
+
+Then we use the 10-fold cross validation to estimate the optimal number of iterations after
+the gbm model has been fit. 
+
+```{r, eval = T, echo = F}
+# generate data set with B C D G O Q
+letter <- read.csv("letter_recognition.csv", header = T)
+attach(letter)
+letterBCDGOQ <- letter[Class == "B"|Class == "C"|Class == "D"|Class == "G"|
+                         Class == "O"|Class == "Q",]
+write.csv(letterBCDGOQ, "letterBCDGOQ.csv")
+
+```
+
+```{r, eval = F, echo = T}
+letter6 <- read.csv("letterBCDGOQ.csv", header = T)[,-1]
+letter.train <- letter6[1:3692,]
+letter.test  <- letter6[-(1:3692),]
+
+library(gbm)
+set.seed(1234)
+t <- proc.time()
+gbm.letter <- gbm(Class ~ .,data = letter.train, distribution = "multinomial", n.trees = 10000,
+                   shrinkage = 0.01,interaction.depth = 3, bag.fraction = 0.5, cv.folds = 10)
+t1 <- proc.time() - t
+```
+
+
+```{r, eval = F, echo = T, include = F, warnings = F}
+letter6 <- read.csv("letterBCDGOQ.csv", header = T)[,-1]
+letter.train <- letter6[1:3692,]
+letter.test  <- letter6[-(1:3692),]
+
+library(gbm)
+# check performance using 5-fold cross-validation
+## black - train error; red - valid error; green - cv error
+best.iter <- gbm.perf(gbm.letter, plot.it = F, method="cv")
+
+# optimal iteration plot
+library(ggplot2)
+library(reshape2)  
+df <- data.frame(iterarion = 1:10000, train = gbm.letter$train.error, cv = gbm.letter$cv.error) 
+df_melt <- melt(df, id = "iterarion", variable.name = "method", value.name = "deviance")
+
+theme <- theme(axis.title.y = element_text(vjust = 2, angle = 90, size = rel(0.78))) + 
+         theme(axis.title.x = element_text(vjust = -1.2, angle = 00, size = rel(0.78))) +
+         theme(plot.title = element_text(size = rel(0.9), face = "bold", vjust = 2.3)) +
+         theme(axis.line = element_line(size=0.5), legend.title = element_blank(), 
+               legend.key = element_blank())
+
+opt.iter <- ggplot(data = df_melt, aes(x = iterarion, y = deviance, group = method)) + 
+            geom_line(size = 0.4, aes(color = method, linetype = method)) + 
+            geom_vline(xintercept = best.iter, linetype = 2) + 
+            xlab("Iteration") + ylab("Multinomial Deviance") + theme +
+            ggtitle("Figure 1    Train and cv error at each iteration")
+```
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[height = 8cm, width = 6\textwidth]{train and cv error.png}
+\end{center}
+\end{figure}
+
+Figure 1 plots the deviance of train (red curve) and cross validation (blue curve) at each iteration. The deviance of training set is monotonic decreasing. The deviance of cross validation decreases until additional iterations cause it to increase and over-fitting exists. Thus, we choose the number of iterations that gives minimal cross validation deviance to reduce the risk of over-fitting.
+
+From the method, we find that the optimal iteration time is 8508, which is shown by the black vertical line in Figure 1.
+
+# 3 Model Interpretation
+```{r, eval = F, echo = T, warnings = F}
+# relative importance
+sum <- summary(gbm.letter, best.iter, plotit = F)
+
+# relative importance plot
+inf_data <- data.frame(var = sum$var, inf = sum$rel.inf)
+influ <- ggplot(inf_data, aes(x = reorder(var, inf), y = inf, fill = inf, width = 0.6)) +
+         ## geom_bar() twice is a hack to omit slash from legend
+         geom_bar(stat = "identity", position = "dodge") +
+         scale_fill_continuous(low = "#56B1F7", high = "#132B43", space = "Lab") +
+         scale_y_continuous(breaks = seq(0, 35, 5), limits = c(0, 35), expand = c(0, 0)) +
+         labs(x = NULL, y = "Relative Influence") +
+         coord_flip() + theme_bw() + 
+         ggtitle("Figure 2    Relative importance of predictors") +
+         theme(axis.text.x = element_text(size = rel(0.8)), 
+               axis.text.y = element_text(size = rel(0.8)),                
+               axis.title.x = element_text(vjust = -1.1, angle = 00, size = rel(0.78)),     
+               panel.background = element_blank(), panel.border = element_blank(),
+               legend.title = element_blank(), legend.text = element_text(size = rel(0.77)),
+               legend.key = element_blank(),
+               plot.title = element_text(size = rel(0.8), face = "bold", vjust = 1.8))
+```
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[height = 8cm, width = 6\textwidth]{relative importance of gbm.png}
+\end{center}
+\end{figure}
+
+Figure 2 shows the relative importance of each of the 16 predictors, as averaged over all classes. The importance is defined to be the reduction of loss for each variable under all iterations. It is a useful way to measure the influence of each variable and to conduct variable selection. 
+
+$xy2br$ is the most relevant predictor, which measures the correlation of the vertical variance with the horizontal position of the rectangular pixels \cite{6}. Predictors related with mean edge count like $y.ege$ and $x.ege$ also have great importance, while $onpix$, $x.box$ and $width$ are much less influential.
+
+
+# 4 Model Evaluation
+
+```{r, eval = F, echo = T, warnings = F}
+# prediction
+pre.gbm <- predict(gbm.letter, newdata = letter.test, n.trees = best.iter, type = "response")
+pre <- apply(pre.gbm, 1, which.max) ## BCDGOQ - 123456
+pre[pre == 1] <- "B"
+pre[pre == 2] <- "C"
+pre[pre == 3] <- "D"
+pre[pre == 4] <- "G"
+pre[pre == 5] <- "O"
+pre[pre == 6] <- "Q"
+pre <- as.factor(pre)
+
+true <- letter.test$Class
+gbm.error <- 1 - sum(true == pre)/length(pre)
+
+actual <- as.data.frame(table(true))
+names(actual) <- c("Actual","ActualFreq")
+
+```
+
+Now we evaluate our model on the test set with a size of 924. Using the model to classify the test set, we get an error rate of $2.38\%$, indicating that GBM performs pretty well on this data set. 
+
+```{r, eval = F, echo = T, warnings = F}
+# build confusion matrix
+confusion <- as.data.frame(table(true, pre))
+names(confusion) <- c("Actual", "Predicted", "Freq")
+
+# calculate percentage of test cases based on actual frequency
+confusion <- merge(confusion, actual)
+confusion$Percent <- confusion$Freq / confusion$ActualFreq * 100
+
+# plot confusion matrix
+tile <- ggplot() + geom_tile(aes(x = Actual, y = Predicted, fill = Percent),
+                             data = confusion, color = "white", size = 0.2) +
+        labs(x = "Actual Class",y = "Predicted Class") + 
+        geom_text(aes(x = Actual,y = Predicted, label = sprintf("%.1f", Percent)),
+                  data = confusion, size=3, colour = "black") + 
+        scale_fill_gradient(low = "#ece7f2", high = "#a6bddb")+  
+        theme(panel.background = element_blank(), panel.grid.minor = element_blank(), 
+              panel.grid.major = element_blank(), 
+              axis.title.x = element_text(vjust = - 1.2, angle = 00, size = rel(0.78)), 
+              axis.title.y = element_text(vjust = 2.1, angle = 90, size = rel(0.78)), 
+              plot.title = element_text(size = rel(0.9), face = "bold", vjust = 1.8), 
+              legend.title = element_text(size = rel(0.78)), 
+              legend.text = element_text(size = rel(0.78))) + 
+        ggtitle("Figure 4    Confusion matrix of the test set")
+
+```
+
+\begin{figure}[!htbp]
+\begin{center}
+\includegraphics[height = 8cm, width = 6\textwidth]{confusion matrix.png}
+\end{center}
+\end{figure}
+
+Figure 4 is the confusion matrix of the test set, also showing that GBM has achieved reasonably-high accuracy on this problem. B is best separated from other letters, having a correct classification rate of 99.3%. It is noticeable that {B,D}, {C,G}, and {O,Q} are three pairs that are relatively hard to classify.
+
+# 5 Model Comparison and Summary
+Next, we compare the performance of the obtained GBM model with other machine learning methods. We will validate the GBM performance with logistic regression, support vector machine and random forest.
+
+```{r, eval = F, echo = T}
+set.seed(1234)
+# multinomial logistic
+library(nnet)
+t <- proc.time()
+logit.letter <- multinom(Class ~ .,data = letter.train, ref = "B")
+t2 <- proc.time() - t
+
+pre.logit <- predict(logit.letter, newdata = letter.test, "probs")
+pre.logit <- apply(pre.logit, 1, which.max)
+true <- as.numeric(letter.test$Class)
+logit.error <- 1 - sum(pre.logit == true)/length(pre.logit)
+  
+# svm
+library(kernlab)
+t <- proc.time()
+svm.letter <- ksvm(Class ~ .,data = letter.train, type = "C-svc", 
+                   kernel ="rbfdot", C = 3)
+t3 <- proc.time() - t
+
+true <- letter.test[,1]
+pre.svm <- predict(svm.letter, letter.test[,-1])
+svm.error <- 1 - sum(pre.svm == true)/length(pre.svm)
+
+# random forest
+require(randomForest)
+require(MASS)
+
+t <- proc.time()
+rf.letter <- randomForest(Class ~ .,data = letter6, subset = 1:3692, ntree = 10000,
+                          xtest = letter.test[,-1], ytest = letter.test[,1])
+t4 <- proc.time() - t
+
+pre.rf <- rf.letter$test$predicted
+true <- letter.test[,1]
+rf.error <- 1 - sum(pre.rf == true)/length(pre.rf)
+
+```
+
+Method | Running time (s) | Test error rates (%)
+-|-|-
+Logistic regression | 1.14 |  16.23
+Support vector machine - RBF kernel | 1.2 |  1.52
+Random forest | 69.56 | 2.63
+Gradient boosting, trees | 267.98 |  2.38
+
+Table: Comparison of different methods
+
+Among all the methods, logistic regression has the highest error rate on test set. It is reasonable because logistic regression doesn't attempt to maximize classification accuracy, but to find coefficients that minimize the cross-entropy cost. 
+
+Among the other three methods, error rate is lowest for SVM (with Radial Basis kernel), intermediate for GBM and highest for RF. RF also learns ensembles of trees, but it trains multiple trees in parallel, taking it less time than GBM. 
+
+Since all predictors are numeric with no missing values, SVM performs pretty well. But when the inputs are mixtures of quantitative, binary and categorical, or many missing values exist in the data set, SVM may not have such a good performance.
+
+We can see that GBM takes the longest time to run. GBM is not the best for this particular problem, however, it tends to keep the good performance in more complex data sets. GBM is robust to outliers and missing data, having the ability to model interactions. It takes advantages of traditional boosting, tree-based models, as well as bagging. Although it may take more time to fit GBM, we can tune parameters to make a balance between predictive performance and computational cost.
+
+\begin{thebibliography}{99}
+
+\bibitem{1}
+Friedman, J. H. (2001). Greedy function approximation: a gradient boosting machine. 
+\emph{Annals of statistics} 29(5): 1189-1232.
+
+\bibitem{2}
+Natekin, A., \& Knoll, A. (2013). Gradient boosting machines, a tutorial. 
+\emph{Frontiers in neurorobotics}, 7.
+
+\bibitem{3}
+Friedman, J., Hastie, T., \& Tibshirani, R. (2009). The Elements of Statistical Learning: Data Mining, Inference, and Prediction (2nd Edition). 
+\emph{Springer Series in Statistics}.
+
+\bibitem{4}
+Gradient boosting. (2016, December 8). 
+In \emph{Wikipedia, The Free Encyclopedia}. Retrieved 16:09, December 8, 2016, from \url{https://en.wikipedia.org/w/index.php?title=Gradient_boosting&oldid=753674492}
+
+\bibitem{5}
+Lee, S., Lin, S., \& Antonio, K. (2015). Delta Boosting Machine and its Application in Actuarial Modeling.
+
+\bibitem{6}
+Frey, P. W., \& Slate, D. J. (1991). Letter recognition using Holland-style adaptive classifiers. 
+\emph{Machine learning}, 6(2), 161-182.
+
+\bibitem{7}
+Friedman, J. H. (2002). Stochastic gradient boosting. 
+\emph{Computational Statistics \& Data Analysis}, 38(4), 367-378.
+
+\bibitem{8}
+Ridgeway, G. (2007). Generalized Boosted Models: A guide to the gbm package. 
+\emph{Update}, 1(1), 2007.
+
+\bibitem{9}
+Ogutu, J. O., Piepho, H. P., \& Schulz-Streeck, T. (2011, May). A comparison of random forests, boosting and support vector machines for genomic selection. 
+In \emph{BMC proceedings} (Vol. 5, No. 3, p. 1). BioMed Central.
+
+\end{thebibliography}
