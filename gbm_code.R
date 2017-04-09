@@ -1,4 +1,4 @@
-### -------------------- Code for letter recognition project -------------------- ###
+### --------------------- Code for letter recognition project -------------------- ###
 
 library(gbm)
 library(ggplot2)
@@ -24,7 +24,7 @@ letter.test  <- letter6[-(1:3692),]
 # Build gradient boosting model
 set.seed(1234)
 t <- proc.time()
-gbm.letter <- gbm(Class ~ .,data = letter.train, distribution = "multinomial", n.trees = 10000,
+gbm.letter <- gbm(Class ~ ., data = letter.train, distribution = "multinomial", n.trees = 10000,
                   shrinkage = 0.01, interaction.depth = 3, bag.fraction = 0.5, cv.folds = 10)
 t1 <- proc.time() - t
 
@@ -125,7 +125,7 @@ true <- letter.test$Class
 gbm.error <- 1 - sum(true == pre) / length(pre)
 
 actual <- as.data.frame(table(true))
-names(actual) <- c("Actual","ActualFreq")
+names(actual) <- c("Actual", "ActualFreq")
 
 # Build confusion matrix
 confusion <- as.data.frame(table(true, pre))
@@ -156,7 +156,7 @@ set.seed(1234)
 
 ## Multinomial logistic
 t <- proc.time()
-logit.letter <- multinom(Class ~ .,data = letter.train, ref = "B")
+logit.letter <- multinom(Class ~ ., data = letter.train, ref = "B")
 t2 <- proc.time() - t
 
 pre.logit <- predict(logit.letter, newdata = letter.test, "probs")
@@ -166,7 +166,7 @@ logit.error <- 1 - sum(pre.logit == true) / length(pre.logit)
 
 ## Support vector machine
 t <- proc.time()
-svm.letter <- ksvm(Class ~ .,data = letter.train, type = "C-svc", 
+svm.letter <- ksvm(Class ~ ., data = letter.train, type = "C-svc", 
                    kernel = "rbfdot", C = 3)
 t3 <- proc.time() - t
 
@@ -176,7 +176,7 @@ svm.error <- 1 - sum(pre.svm == true) / length(pre.svm)
 
 ## Random forest
 t <- proc.time()
-rf.letter <- randomForest(Class ~ .,data = letter6, subset = 1:3692, ntree = 10000,
+rf.letter <- randomForest(Class ~ ., data = letter6, subset = 1:3692, ntree = 10000,
                           xtest = letter.test[,-1], ytest = letter.test[,1])
 t4 <- proc.time() - t
 
